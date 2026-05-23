@@ -422,7 +422,7 @@ npm run test
 ```
 
 ```
- RUN  v1.6.1 /Users/besaoct/Desktop/drivespread/drivespread-npm
+ RUN  v1.6.1 /workspace/drivespread
 
  ✓ tests/drivespread.test.ts (17 tests) 1466ms
 
