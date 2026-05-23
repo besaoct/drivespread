@@ -90,7 +90,7 @@ ${c.bold}COMMANDS:${c.reset}
 
 async function runInit() {
   ui.heading('Initialize DriveSpread Database Configuration');
-  
+
   const dbName = await askQuestion('Enter database name (e.g. my-app-prod): ');
   if (!dbName) {
     ui.error('Database name cannot be empty.');
@@ -122,7 +122,7 @@ async function runInit() {
 
 async function runMigrate() {
   ui.heading('Migrate DriveSpread Sheets to SQL/NoSQL DB');
-  
+
   const dbName = process.env.DRIVESPREAD_DB || await askQuestion('Enter database name: ');
   const saKey = process.env.GOOGLE_SA_KEY || await askQuestion('Enter service account key path or JSON: ');
 
@@ -228,7 +228,7 @@ async function runMigrate() {
 
 async function runStudio() {
   ui.heading('Launch DriveSpread Studio Dashboard');
-  
+
   const dbName = process.env.DRIVESPREAD_DB || await askQuestion('Enter database name: ');
   const saKey = process.env.GOOGLE_SA_KEY || await askQuestion('Enter service account credentials key path or JSON: ');
 
