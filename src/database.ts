@@ -36,9 +36,10 @@ export class DriveSpread {
   constructor(options: DriveSpreadOptions) {
     this.options = options;
     const creds = options.credentials || process.env.GOOGLE_SA_KEY;
-    if (!creds) {
+    const hasIndividualEnv = (process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_CLIENT_EMAIL) || process.env.GOOGLE_REFRESH_TOKEN;
+    if (!creds && !hasIndividualEnv) {
       throw new Error(
-        'Google Cloud credentials are required. Set "credentials" option or GOOGLE_SA_KEY env variable.'
+        'Google Cloud credentials are required. Set "credentials" option, GOOGLE_SA_KEY env, or individual GOOGLE_PRIVATE_KEY/GOOGLE_CLIENT_EMAIL or GOOGLE_REFRESH_TOKEN env variables.'
       );
     }
 
@@ -59,12 +60,14 @@ export class DriveSpread {
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = (async () => {
-      const folderName = `drivespread_${this.options.db}`;
-      
-      // 1. Find or create Database namespace folder
-      let folderId = await this.driveService.findByName(folderName, undefined, 'application/vnd.google-apps.folder');
+      let folderId = this.options.folderId || process.env.DRIVESPREAD_FOLDER_ID;
       if (!folderId) {
-        folderId = await this.driveService.createFolder(folderName);
+        const folderName = `drivespread_${this.options.db}`;
+        // 1. Find or create Database namespace folder
+        folderId = await this.driveService.findByName(folderName, undefined, 'application/vnd.google-apps.folder') || undefined;
+        if (!folderId) {
+          folderId = await this.driveService.createFolder(folderName);
+        }
       }
       this.dbFolderId = folderId;
 

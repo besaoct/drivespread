@@ -15,6 +15,13 @@ vi.mock('googleapis', () => {
       auth: {
         JWT: class {
           getAccessToken() { return { token: 'mock-token' }; }
+        },
+        OAuth2: class {
+          constructor() {}
+          setCredentials() {}
+          getAccessToken() { return { token: 'mock-oauth2-token' }; }
+          generateAuthUrl() { return 'https://mock-auth-url'; }
+          getToken() { return { tokens: { refresh_token: 'mock-refresh-token' } }; }
         }
       },
       drive: () => ({
@@ -421,5 +428,22 @@ describe('DriveSpread Integration End-to-End', () => {
     await clients.deleteById(c._id!);
     const checkInv = await invoices.findById(inv._id!);
     expect(checkInv).toBeNull(); // cascaded
+  });
+
+  it('should initialize successfully using personal Google Account OAuth2 credentials', async () => {
+    const oauthDb = new DriveSpread({
+      db: 'oauth-test-db',
+      credentials: {
+        client_id: 'mock-client-id',
+        client_secret: 'mock-client-secret',
+        refresh_token: 'mock-refresh-token'
+      }
+    });
+
+    await oauthDb.init();
+    expect(oauthDb.getFolderId()).toBeDefined();
+    
+    const token = await oauthDb.driveService.getAccessToken();
+    expect(token).toBe('mock-oauth2-token');
   });
 });

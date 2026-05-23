@@ -1,20 +1,30 @@
 import DriveSpread from 'drivespread';
 import express from 'express';
 import * as path from 'path';
+import dotenv from 'dotenv';
+import * as fs from 'fs';
+
+// Load environment variables (supports .env.local or .env)
+if (fs.existsSync('.env.local')) {
+  dotenv.config({ path: '.env.local' });
+} else {
+  dotenv.config();
+}
 
 // Enforce environment variables in production-like style
 const credentials = process.env.GOOGLE_SA_KEY;
+const hasIndividualEnv = process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_CLIENT_EMAIL;
 const dbName = process.env.DRIVESPREAD_DB || 'todo-html-db';
 
-if (!credentials) {
-  console.error('\n❌ Error: GOOGLE_SA_KEY environment variable is not defined.');
-  console.log('Please define GOOGLE_SA_KEY in your .env file as either a path to your service account key or a raw JSON string.\n');
+if (!credentials && !hasIndividualEnv) {
+  console.error('\n❌ Error: Google Cloud credentials are not defined.');
+  console.log('Please define either GOOGLE_SA_KEY or individual variables (GOOGLE_PRIVATE_KEY and GOOGLE_CLIENT_EMAIL) in your .env file.\n');
   process.exit(1);
 }
 
 const db = new DriveSpread({
   db: dbName,
-  credentials: credentials,
+  credentials: credentials || undefined,
 });
 
 // Initialize collection
@@ -25,7 +35,7 @@ db.collection('todos', {
   createdAt: { type: 'date', default: () => new Date().toISOString() }
 });
 
-const server = db.serve({
+const server = await db.serve({
   port: 3000,
   auth: { type: 'none' }, // Simple auth-free access for local demo
   realtime: { enabled: true, pollIntervalMs: 2000 }

@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "drivespread": "latest"
+    "dotenv": "^16.4.5",
+    "drivespread": "file:../.."
   }
 }

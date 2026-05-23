@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { DriveSpread } from '../database.js';
 
-export function startStudio(dbName: string, credentials: string) {
+export function startStudio(dbName: string, credentials?: string) {
   const app = express();
   const port = 4567;
   const db = new DriveSpread({ db: dbName, credentials });

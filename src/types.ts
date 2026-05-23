@@ -1,15 +1,19 @@
 export type GoogleCredentials =
   | string
   | {
-      client_email: string;
-      private_key: string;
+      client_email?: string;
+      private_key?: string;
       project_id?: string;
+      client_id?: string;
+      client_secret?: string;
+      refresh_token?: string;
       [key: string]: any;
     };
 
 export interface DriveSpreadOptions {
   db: string;
   credentials?: GoogleCredentials;
+  folderId?: string;
 }
 
 export type FieldType = 'string' | 'number' | 'boolean' | 'date' | 'blob' | 'array' | 'object';
