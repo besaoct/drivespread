@@ -27,7 +27,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup && tsc --emitDeclarationOnly",
+    "build": "tsup && tsc --emitDeclarationOnly && chmod +x dist/cli/index.js",
     "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
