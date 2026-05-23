@@ -1,0 +1,8 @@
+{
+  "name": "drivespread-example",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "drivespread": "^1.0.1"
+  }
+}
