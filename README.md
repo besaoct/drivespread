@@ -556,15 +556,15 @@ npm run test
 ```
  RUN  v1.6.1 /workspace/drivespread
 
- ✓ tests/drivespread.test.ts (17 tests) 1466ms
+ ✓ tests/drivespread.test.ts (18 tests) 1462ms
 
  Test Files  1 passed (1)
-      Tests  17 passed (17)
-   Start at  15:01:03
-   Duration  1.75s
+      Tests  18 passed (18)
+   Start at  04:14:26
+   Duration  1.77s
 ```
 
-All 17 integration tests pass. Type checking under strict configuration compiles with zero warnings or errors.
+All 18 integration tests pass. Type checking under strict configuration compiles with zero warnings or errors.
 
 ---
 
@@ -573,4 +573,6 @@ All 17 integration tests pass. Type checking under strict configuration compiles
 - **Runtime**: Node.js >= 24.0.0
 - **TypeScript**: Strict-mode ready
 - **License**: MIT
-- **Bundle size**: < 80KB (highly tree-shakeable)
+- **Bundle size**: 
+  - **Client SDK (`client.mjs`)**: ~2.2 KB (fully tree-shakeable)
+  - **Core Database Engine (`index.mjs` + chunks)**: ~73 KB
