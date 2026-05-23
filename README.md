@@ -1,7 +1,7 @@
 # DriveSpread
 
 [![npm version](https://img.shields.io/npm/v/drivespread.svg?style=flat-flat)](https://www.npmjs.com/package/drivespread)
-[![CI/CD Status](https://github.com/drivespread/drivespread/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/drivespread/drivespread/actions)
+[![CI/CD Status](https://github.com/besaoct/drivespread/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/besaoct/drivespread/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Tests Passed](https://img.shields.io/badge/Tests-17%2F17%20Passed-brightgreen.svg)]()
 
