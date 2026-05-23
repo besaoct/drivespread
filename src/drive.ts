@@ -42,7 +42,7 @@ export class GoogleDriveService {
     const credsObj = parseCredentials(credentials);
     
     // Replace literal newlines in private key if it was passed via environment variable
-    const privateKey = credsObj.private_key.replace(/\\n/g, '\n');
+    const privateKey = credsObj.private_key ? credsObj.private_key.replace(/\\n/g, '\n') : undefined;
 
     this.authClient = new google.auth.JWT(
       credsObj.client_email,

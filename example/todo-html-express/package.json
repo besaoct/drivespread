@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "drivespread": "^1.0.1"
+    "drivespread": "latest"
   }
 }

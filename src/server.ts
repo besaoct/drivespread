@@ -566,5 +566,19 @@ export async function startServer(db: DriveSpread, options: ServerOptions = {}) 
     console.log(`DriveSpread REST server listening on port ${port}`);
   });
 
-  return server;
+  // Expose Express app routing methods (like .use, .get, etc.) on the server instance
+  const serverProxy = new Proxy(server, {
+    get(target: any, prop: string | symbol) {
+      if (prop in target) {
+        return target[prop];
+      }
+      if (prop in app) {
+        const val = (app as any)[prop];
+        return typeof val === 'function' ? val.bind(app) : val;
+      }
+      return undefined;
+    },
+  });
+
+  return serverProxy;
 }

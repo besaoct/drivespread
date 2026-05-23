@@ -1,4 +1,5 @@
 import { DriveSpread } from './database.js';
+import './adapters.js';
 export { DriveSpread } from './database.js';
 export { Collection } from './collection.js';
 export * from './types.js';
