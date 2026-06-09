@@ -1,5 +1,7 @@
 .env
 .env.local
 node_modules/
+# Sensitive credentials
+google-service-account.json
+service-account.json
 credentials.json
-*.json
