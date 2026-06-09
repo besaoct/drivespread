@@ -43,39 +43,7 @@ function askQuestion(query: string): Promise<string> {
   );
 }
 
-function askMultiLinePrivateKey(query: string): Promise<string> {
-  const coloredQuery = `${c.bold}${c.blue}?${c.reset} ${c.bold}${query}${c.reset} ${c.dim}(Paste the key and press Enter twice, or paste it as a single line):${c.reset}\n`;
-  console.log(coloredQuery);
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  return new Promise((resolve) => {
-    const lines: string[] = [];
-    rl.on('line', (line) => {
-      const trimmed = line.trim();
-      if (trimmed === '' && lines.length > 0) {
-        rl.close();
-        resolve(lines.join('\n'));
-        return;
-      }
-      if (trimmed === '' && lines.length === 0) {
-        rl.close();
-        resolve('');
-        return;
-      }
-
-      lines.push(line);
-
-      if (line.includes('-----END PRIVATE KEY-----')) {
-        rl.close();
-        resolve(lines.join('\n'));
-      }
-    });
-  });
-}
 
 
 function loadEnv() {
@@ -247,22 +215,44 @@ async function runInit() {
     return;
   }
 
-  const folderIdInput = await askQuestion('Enter Google Drive Folder ID (if already created on your main Drive) [Optional]: ');
+  console.log(`\nSelect Authentication Method:`);
+  console.log(`  ${c.bold}1)${c.reset} Personal Google Account (OAuth - Recommended for personal/dev/free projects)`);
+  console.log(`  ${c.bold}2)${c.reset} Google Cloud Service Account (Key JSON - Recommended for Workspace/production)`);
+  const authChoice = await askQuestion('Choose option (1 or 2, default: 1): ');
 
-  const authChoice = await askQuestion(
-    'Select Google authentication method:\n' +
-    '  1) Google Service Account (JSON file or manual keys)\n' +
-    '  2) Personal Google Account (OAuth2 Client ID/Secret)\n' +
-    'Enter choice (1 or 2, default: 1): '
-  );
+  const usePersonalOAuth = authChoice !== '2';
 
-  const isPersonal = authChoice === '2';
-  let credsObj: Record<string, string> = {};
   let clientId = '';
   let clientSecret = '';
   let refreshToken = '';
+  let useServiceAccount = false;
+  let saCredsObj: Record<string, string> = {};
+  let formattedPrivateKey = '';
+  let dbFolderId = '';
 
-  if (isPersonal) {
+  if (usePersonalOAuth) {
+    ui.info('\nStep 1: Personal Account Authentication Setup');
+    ui.warn('Important OAuth Pre-requisites:');
+    console.log(`  To set up Google Drive & Sheets API OAuth credentials:`);
+    console.log(`  1. Open the Google Cloud Console: ${c.cyan}https://console.cloud.google.com/${c.reset}`);
+    console.log(`  2. Create a project (or select an existing one).`);
+    console.log(`  3. Enable Google Drive API & Google Sheets API:`);
+    console.log(`     - Go to: ${c.cyan}https://console.cloud.google.com/apis/library${c.reset}`);
+    console.log(`     - Search for and enable ${c.bold}Google Drive API${c.reset} and ${c.bold}Google Sheets API${c.reset}`);
+    console.log(`  4. Configure OAuth Consent Screen:`);
+    console.log(`     - Go to: ${c.cyan}https://console.cloud.google.com/apis/credentials/consent${c.reset}`);
+    console.log(`     - Select User Type: ${c.bold}External${c.reset}, fill in basic app details.`);
+    console.log(`     - Under the "Test users" step, add your Gmail address (${c.bold}critical${c.reset} for dev apps).`);
+    console.log(`  5. Create OAuth 2.0 Credentials:`);
+    console.log(`     - Go to: ${c.cyan}https://console.cloud.google.com/apis/credentials${c.reset}`);
+    console.log(`     - Click ${c.bold}+ Create Credentials${c.reset} -> ${c.bold}OAuth client ID${c.reset}`);
+    console.log(`     - Select Application type: ${c.bold}Web application${c.reset}`);
+    console.log(`     - Under ${c.bold}Authorized redirect URIs${c.reset}, click Add URI and paste:`);
+    console.log(`       ${c.green}http://localhost:4567/oauth2callback${c.reset}`);
+    console.log(`     - Click Create to retrieve your Client ID and Client Secret.`);
+    console.log(`  6. Consent Screen Warning Bypass:`);
+    console.log(`     - During login, click ${c.bold}Advanced${c.reset} -> ${c.bold}Go to <App Name> (unsafe)${c.reset} to proceed.\n`);
+
     clientId = await askQuestion('Enter Google Client ID: ');
     if (!clientId) {
       ui.error('Client ID is required.');
@@ -282,141 +272,160 @@ async function runInit() {
       ui.error(`OAuth authentication failed: ${err.message}`);
       return;
     }
-  } else {
-    const useJson = await askQuestion('Do you want to initialize using a Google Service Account JSON key file? (y/N): ');
-    
-    if (useJson.toLowerCase() === 'y' || useJson.toLowerCase() === 'yes') {
+
+    ui.info('\nStep 2: Database Folder Creation');
+    ui.info('Creating database folder and initial configuration on your personal Google Drive...');
+
+    try {
+      const personalDb = new DriveSpread({
+        db: dbName,
+        credentials: {
+          client_id: clientId,
+          client_secret: clientSecret,
+          refresh_token: refreshToken,
+        },
+      });
+
+      await personalDb.init();
+      dbFolderId = personalDb.getFolderId()!;
+      ui.success(`Database created successfully! Folder ID: ${dbFolderId}`);
+    } catch (err: any) {
+      ui.error(`Failed to initialize database: ${err.message}`);
+      return;
+    }
+
+    ui.info('\nStep 3: Service Account Collaboration (Optional)');
+    ui.info('You can share this folder with a Service Account so your backend can read/write to it.');
+    const shareWithSa = await askQuestion('Would you like to share this database folder with a Service Account? (y/N): ');
+
+    if (shareWithSa.toLowerCase() === 'y' || shareWithSa.toLowerCase() === 'yes') {
       const saPath = await askQuestion('Enter path to Google Service Account JSON file (e.g. ./credentials.json): ');
-      if (!saPath) {
-        ui.error('Service account key path is required.');
-        return;
-      }
+      if (saPath) {
+        const resolvedPath = path.resolve(saPath);
+        if (!fs.existsSync(resolvedPath)) {
+          ui.error(`Credentials file not found at path: ${resolvedPath}`);
+        } else {
+          try {
+            const fileContent = fs.readFileSync(resolvedPath, 'utf8');
+            saCredsObj = JSON.parse(fileContent);
 
-      const resolvedPath = path.resolve(saPath);
-      if (!fs.existsSync(resolvedPath)) {
-        ui.error(`Credentials file not found at path: ${resolvedPath}`);
-        return;
-      }
-
-      try {
-        const fileContent = fs.readFileSync(resolvedPath, 'utf8');
-        credsObj = JSON.parse(fileContent);
-      } catch (err: any) {
-        ui.error(`Failed to parse credentials file: ${err.message}`);
-        return;
-      }
-
-      const requiredFields = ['project_id', 'private_key', 'client_email'];
-      for (const field of requiredFields) {
-        if (!credsObj[field]) {
-          ui.error(`Credentials JSON is missing required field: "${field}"`);
-          return;
+            if (!saCredsObj.client_email || !saCredsObj.private_key) {
+              ui.error('JSON file is missing "client_email" or "private_key".');
+            } else {
+              ui.info(`Sharing database folder with ${saCredsObj.client_email}...`);
+              // Use personal OAuth to share the folder with the Service Account
+              const personalDb = new DriveSpread({
+                db: dbName,
+                credentials: {
+                  client_id: clientId,
+                  client_secret: clientSecret,
+                  refresh_token: refreshToken,
+                },
+              });
+              await personalDb.init();
+              await personalDb.driveService.drive.permissions.create({
+                fileId: dbFolderId,
+                requestBody: {
+                  role: 'writer',
+                  type: 'user',
+                  emailAddress: saCredsObj.client_email,
+                },
+              });
+              ui.success('Folder shared successfully!');
+              useServiceAccount = true;
+              formattedPrivateKey = saCredsObj.private_key.replace(/\n/g, '\\n');
+            }
+          } catch (err: any) {
+            ui.error(`Failed to share with Service Account: ${err.message}`);
+          }
         }
       }
-    } else {
-      // Prompt for individual required keys
-      const projectId = await askQuestion('Enter Google Project ID (project_id): ');
-      if (!projectId) {
-        ui.error('Project ID is required.');
-        return;
-      }
-
-      const clientEmail = await askQuestion('Enter Google Client Email (client_email): ');
-      if (!clientEmail) {
-        ui.error('Client Email is required.');
-        return;
-      }
-
-      const privateKey = await askMultiLinePrivateKey('Enter Google Private Key (private_key): ');
-      if (!privateKey) {
-        ui.error('Private Key is required.');
-        return;
-      }
-
-      credsObj = {
-        project_id: projectId,
-        client_email: clientEmail,
-        private_key: privateKey,
-      };
-
-      const configureAdvanced = await askQuestion('Would you like to configure advanced/optional Google credentials? (y/N): ');
-      if (configureAdvanced.toLowerCase() === 'y' || configureAdvanced.toLowerCase() === 'yes') {
-        credsObj.type = await askQuestion('Enter Google Account Type (type) [Optional, default: service_account]: ') || 'service_account';
-        credsObj.private_key_id = await askQuestion('Enter Google Private Key ID (private_key_id) [Optional]: ');
-        credsObj.client_id = await askQuestion('Enter Google Client ID (client_id) [Optional]: ');
-        credsObj.auth_uri = await askQuestion('Enter Google Auth URI [Optional, default: https://accounts.google.com/o/oauth2/auth]: ') || 'https://accounts.google.com/o/oauth2/auth';
-        credsObj.token_uri = await askQuestion('Enter Google Token URI [Optional, default: https://oauth2.googleapis.com/token]: ') || 'https://oauth2.googleapis.com/token';
-        credsObj.auth_provider_x509_cert_url = await askQuestion('Enter Google Auth Provider X509 Cert URL [Optional, default: https://www.googleapis.com/oauth2/v1/certs]: ') || 'https://www.googleapis.com/oauth2/v1/certs';
-        credsObj.client_x509_cert_url = await askQuestion('Enter Google Client X509 Cert URL [Optional]: ');
-        credsObj.universe_domain = await askQuestion('Enter Google Universe Domain [Optional, default: googleapis.com]: ') || 'googleapis.com';
-      }
     }
-  }
-
-  // Format private key correctly with escaped newlines for .env parsing
-  const formattedPrivateKey = credsObj.private_key ? credsObj.private_key.replace(/\n/g, '\\n') : '';
-
-  ui.info('Verifying Google Cloud credentials and API access...');
-  try {
-    const tempDb = new DriveSpread({
-      db: dbName,
-      credentials: isPersonal ? {
-        client_id: clientId,
-        client_secret: clientSecret,
-        refresh_token: refreshToken,
-      } : {
-        type: credsObj.type || 'service_account',
-        project_id: credsObj.project_id,
-        private_key_id: credsObj.private_key_id,
-        private_key: formattedPrivateKey,
-        client_email: credsObj.client_email,
-        client_id: credsObj.client_id,
-        auth_uri: credsObj.auth_uri,
-        token_uri: credsObj.token_uri,
-        auth_provider_x509_cert_url: credsObj.auth_provider_x509_cert_url,
-        client_x509_cert_url: credsObj.client_x509_cert_url,
-        universe_domain: credsObj.universe_domain,
-      },
-      folderId: folderIdInput || undefined,
-    });
-    
-    // Call list files to verify auth and API enablement
-    await tempDb.driveService.drive.files.list({ pageSize: 1 });
-    ui.success('Connection verified successfully!');
-  } catch (err: any) {
-    ui.warn(`Could not verify Google Cloud connection: ${err.message}`);
-    const proceed = await askQuestion('Do you want to write these configurations to your .env file anyway? (y/N): ');
-    if (proceed.toLowerCase() !== 'y' && proceed.toLowerCase() !== 'yes') {
-      ui.info('Aborted. Configuration was not written to .env.');
+  } else {
+    // Service Account Key Flow
+    ui.info('\nStep 1: Service Account Key Input');
+    const saPath = await askQuestion('Enter path to Google Service Account JSON file (e.g. ./credentials.json): ');
+    if (!saPath) {
+      ui.error('Service account key path is required.');
       return;
+    }
+
+    const resolvedPath = path.resolve(saPath);
+    if (!fs.existsSync(resolvedPath)) {
+      ui.error(`Credentials file not found at path: ${resolvedPath}`);
+      return;
+    }
+
+    try {
+      const fileContent = fs.readFileSync(resolvedPath, 'utf8');
+      saCredsObj = JSON.parse(fileContent);
+
+      if (!saCredsObj.client_email || !saCredsObj.private_key) {
+        ui.error('JSON file is missing "client_email" or "private_key".');
+        return;
+      }
+      useServiceAccount = true;
+      formattedPrivateKey = saCredsObj.private_key.replace(/\n/g, '\\n');
+    } catch (err: any) {
+      ui.error(`Failed to parse Service Account JSON: ${err.message}`);
+      return;
+    }
+
+    ui.info('\nStep 2: Database Folder Details');
+    ui.warn('Note: Because Google Service Accounts typically have a 0-byte storage quota by default:');
+    console.log(`  - If the Service Account is in a Workspace / has quota, it can create a folder automatically.`);
+    console.log(`  - Otherwise, you should create a folder in your Personal Google Drive, share it with the Service Account's email (${c.cyan}${saCredsObj.client_email}${c.reset}) as a Writer, and input its Folder ID below.\n`);
+
+    dbFolderId = await askQuestion('Enter existing Google Drive Folder ID (leave empty to try auto-creating): ');
+
+    if (!dbFolderId) {
+      ui.info('Attempting to create folder as the Service Account...');
+      try {
+        const saDb = new DriveSpread({
+          db: dbName,
+          credentials: {
+            client_email: saCredsObj.client_email,
+            private_key: saCredsObj.private_key,
+          },
+        });
+        await saDb.init();
+        dbFolderId = saDb.getFolderId()!;
+        ui.success(`Folder created successfully! ID: ${dbFolderId}`);
+      } catch (err: any) {
+        ui.error(`Failed to auto-create folder: ${err.message}`);
+        console.log(`Please create the folder manually, share it with ${c.cyan}${saCredsObj.client_email}${c.reset}, and rerun 'init' supplying the Folder ID.`);
+        return;
+      }
     }
   }
 
   // Build the list of env keys
   const envEntries = [
     `DRIVESPREAD_DB="${dbName}"`,
-    `DRIVESPREAD_FOLDER_ID="${folderIdInput}"`,
+    `DRIVESPREAD_FOLDER_ID="${dbFolderId}"`,
   ];
 
-  if (isPersonal) {
+  if (useServiceAccount) {
+    ui.info('\nWriting Service Account credentials to .env...');
+    envEntries.push(
+      `GOOGLE_TYPE="${saCredsObj.type || 'service_account'}"`,
+      `GOOGLE_PROJECT_ID="${saCredsObj.project_id || ''}"`,
+      `GOOGLE_PRIVATE_KEY_ID="${saCredsObj.private_key_id || ''}"`,
+      `GOOGLE_PRIVATE_KEY="${formattedPrivateKey}"`,
+      `GOOGLE_CLIENT_EMAIL="${saCredsObj.client_email}"`,
+      `GOOGLE_CLIENT_ID="${saCredsObj.client_id || ''}"`,
+      `GOOGLE_AUTH_URI="${saCredsObj.auth_uri || 'https://accounts.google.com/o/oauth2/auth'}"`,
+      `GOOGLE_TOKEN_URI="${saCredsObj.token_uri || 'https://oauth2.googleapis.com/token'}"`,
+      `GOOGLE_AUTH_PROVIDER_X509_CERT_URL="${saCredsObj.auth_provider_x509_cert_url || 'https://www.googleapis.com/oauth2/v1/certs'}"`,
+      `GOOGLE_CLIENT_X509_CERT_URL="${saCredsObj.client_x509_cert_url || ''}"`,
+      `GOOGLE_UNIVERSE_DOMAIN="${saCredsObj.universe_domain || 'googleapis.com'}"`
+    );
+  } else {
+    ui.info('\nWriting Personal OAuth credentials to .env...');
     envEntries.push(
       `GOOGLE_CLIENT_ID="${clientId}"`,
       `GOOGLE_CLIENT_SECRET="${clientSecret}"`,
       `GOOGLE_REFRESH_TOKEN="${refreshToken}"`
-    );
-  } else {
-    envEntries.push(
-      `GOOGLE_TYPE="${credsObj.type || 'service_account'}"`,
-      `GOOGLE_PROJECT_ID="${credsObj.project_id}"`,
-      `GOOGLE_PRIVATE_KEY_ID="${credsObj.private_key_id || ''}"`,
-      `GOOGLE_PRIVATE_KEY="${formattedPrivateKey}"`,
-      `GOOGLE_CLIENT_EMAIL="${credsObj.client_email}"`,
-      `GOOGLE_CLIENT_ID="${credsObj.client_id || ''}"`,
-      `GOOGLE_AUTH_URI="${credsObj.auth_uri || 'https://accounts.google.com/o/oauth2/auth'}"`,
-      `GOOGLE_TOKEN_URI="${credsObj.token_uri || 'https://oauth2.googleapis.com/token'}"`,
-      `GOOGLE_AUTH_PROVIDER_X509_CERT_URL="${credsObj.auth_provider_x509_cert_url || 'https://www.googleapis.com/oauth2/v1/certs'}"`,
-      `GOOGLE_CLIENT_X509_CERT_URL="${credsObj.client_x509_cert_url || ''}"`,
-      `GOOGLE_UNIVERSE_DOMAIN="${credsObj.universe_domain || 'googleapis.com'}"`
     );
   }
 
@@ -425,7 +434,6 @@ async function runInit() {
 
   console.log('');
   ui.success(`DriveSpread configurations successfully extracted & appended to ${c.bold}.env${c.reset}!`);
-  ui.info(`All ${c.bold}${envEntries.length - 2}${c.reset} individual Google credential keys have been written directly to your environment.`);
 }
 
 async function runMigrate() {
@@ -575,8 +583,10 @@ async function runEmptyTrash() {
 
   try {
     ui.info('Connecting to Google Drive...');
+    // Use driveService directly without db.init() — init tries to create
+    // folders/spreadsheets which fails when storage is full (the exact
+    // scenario where empty-trash is needed).
     const db = new DriveSpread({ db: dbName, credentials: saKey || undefined });
-    await db.init();
 
     ui.info('Emptying Google Drive trash bin...');
     await db.driveService.drive.files.emptyTrash();

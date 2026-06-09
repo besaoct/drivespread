@@ -3,10 +3,17 @@ import { WsEvent } from './types.js';
 export class DriveSpreadClient {
   private url: string;
   private token?: string;
-  private ws?: WebSocket;
+  public ws?: WebSocket;
   private subscriptions = new Map<string, { filter: any; callback: (event: WsEvent) => void }>();
   private reconnectInterval = 3000;
   private isClosed = false;
+  private activeRequests = 0;
+
+  // Connection callbacks that persist across reconnects
+  public onOpen?: () => void;
+  public onClose?: () => void;
+  public onError?: (err: any) => void;
+  public onLoadingChange?: (isLoading: boolean) => void;
 
   constructor(url: string, options?: { token?: string }) {
     this.url = url;
@@ -32,6 +39,9 @@ export class DriveSpreadClient {
       for (const [colName, sub] of this.subscriptions.entries()) {
         this.sendSubscribeMessage(colName, sub.filter);
       }
+      if (this.onOpen) {
+        this.onOpen();
+      }
     };
 
     socket.onmessage = (event: any) => {
@@ -49,11 +59,17 @@ export class DriveSpreadClient {
     };
 
     socket.onclose = () => {
+      if (this.onClose) {
+        this.onClose();
+      }
       // Automatic reconnection
       setTimeout(() => this.connect(), this.reconnectInterval);
     };
 
-    socket.onerror = () => {
+    socket.onerror = (err: any) => {
+      if (this.onError) {
+        this.onError(err);
+      }
       socket.close();
     };
   }
@@ -70,6 +86,95 @@ export class DriveSpreadClient {
         })
       );
     }
+  }
+
+  private getHttpUrl(): string {
+    return this.url.replace(/^ws(s)?:\/\//, 'http$1://');
+  }
+
+  private setLoading(isLoading: boolean) {
+    if (isLoading) {
+      this.activeRequests++;
+      if (this.activeRequests === 1 && this.onLoadingChange) {
+        this.onLoadingChange(true);
+      }
+    } else {
+      this.activeRequests--;
+      if (this.activeRequests === 0 && this.onLoadingChange) {
+        this.onLoadingChange(false);
+      }
+    }
+  }
+
+  private async fetchApi(path: string, options: RequestInit = {}) {
+    const url = `${this.getHttpUrl()}${path}`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...((options.headers as any) || {}),
+    };
+
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    this.setLoading(true);
+    try {
+      const res = await fetch(url, { ...options, headers });
+      if (!res.ok) {
+        let errMsg = res.statusText;
+        try {
+          const body = await res.json();
+          if (body.error) errMsg = body.error;
+        } catch { }
+        throw new Error(errMsg);
+      }
+      return await res.json();
+    } finally {
+      this.setLoading(false);
+    }
+  }
+
+  async find(collection: string, query?: Record<string, any>) {
+    let q = '';
+    if (query) {
+      const params = new URLSearchParams();
+      for (const [k, v] of Object.entries(query)) {
+        if (typeof v === 'object' && v !== null) {
+          for (const [op, opVal] of Object.entries(v)) {
+            params.append(`${k}[${op}]`, String(opVal));
+          }
+        } else {
+          params.append(k, String(v));
+        }
+      }
+      const p = params.toString();
+      if (p) q = `?${p}`;
+    }
+    return this.fetchApi(`/api/${collection}${q}`);
+  }
+
+  async findById(collection: string, id: string) {
+    return this.fetchApi(`/api/${collection}/${id}`);
+  }
+
+  async insert(collection: string, data: any) {
+    return this.fetchApi(`/api/${collection}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async updateById(collection: string, id: string, data: any) {
+    return this.fetchApi(`/api/${collection}/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteById(collection: string, id: string) {
+    return this.fetchApi(`/api/${collection}/${id}`, {
+      method: 'DELETE',
+    });
   }
 
   /**

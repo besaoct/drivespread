@@ -56,7 +56,7 @@ DriveSpread transforms Google Sheets from a static grid into a scalable, safe, a
 
 1. **Auto-Sharding**: Monitors cell capacities (rows × columns) per spreadsheet. Once a sheet approaches the Google Sheets hard limit of 10 million cells (we trigger at a safe threshold of 9.5M cells), a new shard spreadsheet is automatically provisioned. Reads fan out concurrently across all shards while writes route to the active shard.
 2. **Optimistic & Pessimistic Concurrency**: Every database row tracks an internal version column (`_version`). Updates perform optimistic concurrency checks, raising conflict errors and retrying automatically with exponential backoff on collisions. Critical operations use a Google Sheet-backed `_locks` distributed mutex.
-3. **Throttled Batch Queues**: Aggregates insert, update, and clear operations inside an in-memory queue. Flushes are grouped using Sheets `batchUpdate` and `batchClear` APIs to minimize HTTP roundtrips and strictly respect Google API's 300 requests/minute rate limit.
+3. **Async Write Queue & Background Sync**: Write operations (`insert`, `update`, `delete`) are enqueued into an in-memory queue and processed asynchronously in the background. This decouples the server's API/WebSocket responses from Google Sheets API latency. Instead of blocking requests for 6-8 seconds for Google network roundtrips, requests resolve in <20ms. The queue aggregates, batches (using Sheets `batchUpdate` and `batchClear`), and throttles operations to strictly respect Google's 300 requests/minute rate limit.
 4. **Write-Through Caching**: Implements a configurable TTL read cache. Inserts and updates propagate immediately to the local cache, guaranteeing sub-millisecond sequential reads.
 5. **O(1) JSON Indexes**: Automatically creates and maintains index mapping files on Google Drive (`_index_{collection}_{field}.json`) for primary key lookup optimization.
 6. **Relational Constraints**: Supports `belongsTo`, `hasOne`, and `hasMany` relationships, enforcing in-memory join population and delete cascade actions (`cascade`, `restrict`, `setNull`).
@@ -100,7 +100,7 @@ npm install drivespread
 * **Multi-collection joins** happen entirely in memory. Fine for small datasets, but it breaks down past tens of thousands of rows across joined collections.
 
 ### When to Move On
-DriveSpread is built to be outgrown. Once you hit sustained 1k+ writes per minute, 500k+ rows with complex queries, multi-region teams, or compliance requirements like SOC 2 or HIPAA, migrate to Postgres or MongoDB. The planned `drivespread migrate` CLI in v1.4 will handle that export automatically.
+DriveSpread is built to be outgrown. Once you hit sustained 1k+ writes per minute, 500k+ rows with complex queries, multi-region teams, or compliance requirements like SOC 2 or HIPAA, migrate to Postgres or MongoDB. The `drivespread migrate` CLI command can handle that export for you.
 
 ---
 
@@ -119,58 +119,79 @@ You must enable the Google Drive and Google Sheets APIs in your Google Cloud Pro
 3. Navigate to **IAM & Admin > Service Accounts**.
 4. Click **Create Service Account**, give it a name, and click **Done** (no specific project/IAM roles are required; the database is isolated within the service account's own Drive space).
 
-### Step 3: Generate Keys & Configure Environment
-You have two ways to configure the credentials in your local environment using the DriveSpread CLI:
+### Step 3: Configure Environment using the CLI
 
-#### Option A: Automatic JSON Key Parsing (Recommended)
-1. In the Service Account details, select the **Keys** tab, click **Add Key > Create New Key (JSON)**, and download the key file.
-2. In your project directory, run:
-   ```bash
-   npx drivespread init
-   ```
-3. Enter your database name, select `y` when asked if you want to use a Google Service Account JSON file, and specify the path to the downloaded JSON key (e.g. `./credentials.json`). The CLI will automatically parse the file, format the private key (escaping raw newlines), and append all 11 variables directly to your `.env` file.
+In your project directory, run the interactive setup command:
+```bash
+npx drivespread init
+```
 
-#### Option B: Manual Environment Variable Entry
-If you do not want to download/save a JSON key file to your disk, you can enter the credentials manually during setup:
-1. Open the downloaded key file (or view its content).
-2. Run:
-   ```bash
-   npx drivespread init
-   ```
-3. Enter your database name, select `1` (Google Service Account), and select `N` (No) when asked if you want to use a JSON file, then copy-paste the required fields from the key content into the CLI:
-   - **Google Project ID** (`project_id`)
-   - **Google Client Email** (`client_email`)
-   - **Google Private Key** (`private_key`) — *The CLI supports multi-line pasting. Paste the entire key (including `-----BEGIN/END PRIVATE KEY-----`) and press Enter twice (or hit Enter on an empty line) to finish.*
-4. Optionally specify advanced keys, or press Enter to skip and use defaults.
+The CLI will walk you through the setup based on your preferred authentication method:
 
-#### Option C: Personal Google Account (OAuth2 Credentials)
-If you want to use your personal email address and Google Drive quota (15 GB) instead of a Service Account, you can configure OAuth2 Credentials:
-1. Go to the [Google Cloud Console Credentials Page](https://console.cloud.google.com/apis/credentials).
-2. Click **Create Credentials** and select **OAuth client ID**.
-3. If prompted to configure the OAuth consent screen:
-   - Select **External** (or Internal if you are in a Google Workspace organization).
-   - Fill in the required fields (App name, support email, developer email).
-   - In the **Scopes** step, click **Add or Remove Scopes** and add:
-     - `.../auth/drive` (Google Drive API)
-     - `.../auth/spreadsheets` (Google Sheets API)
-   - In the **Test users** step, add your personal Google email address.
-4. Go back to the **Credentials** page, click **Create Credentials > OAuth client ID**:
-   - Set **Application type** to **Web application**.
-   - Under **Authorized redirect URIs**, add: `http://localhost:4567/oauth2callback`.
-   - Click **Create** and copy your **Client ID** and **Client Secret**.
-5. In your project directory, run:
-   ```bash
-   npx drivespread init
-   ```
-6. Enter database name, then select option `2` (Personal Google Account).
-7. Paste your Client ID and Client Secret. The CLI will automatically spin up a temporary redirect server, open your browser to authorize access to your personal drive/sheets, generate a refresh token, and append the credentials directly to your `.env` file.
+#### Option A: Personal Google Account (OAuth2 - Recommended)
+This is the easiest path for personal, testing, or development projects. It uses your personal Gmail storage (15 GB free space) and credentials, removing the need for service accounts:
+1. When prompted, select **`1) Personal Google Account (OAuth)`**.
+2. **Configure OAuth Consent Screen**:
+   - Navigate to the [OAuth Consent Screen Console](https://console.cloud.google.com/apis/credentials/consent).
+   - Under **User Type**, select **External**, click **Create**, and fill in the required basic app details (app name, support email, developer contact information).
+   - Click **Save and Continue** until you reach the **Test users** section.
+   - > [!IMPORTANT]
+   - > **Crucial Step**: In the **Test users** section, click **+ ADD USERS** and enter the email address of the personal Google account you wish to authenticate. Without this, Google will block your application authentication request.
+3. **Generate OAuth Credentials**:
+   - Go to the [Google Cloud Console Credentials Page](https://console.cloud.google.com/apis/credentials).
+   - Click **+ CREATE CREDENTIALS** at the top and select **OAuth client ID**.
+   - Set the **Application type** to **Web application**.
+   - Add a name (e.g., `DriveSpread Local Development`).
+   - Under **Authorized redirect URIs**, click **+ ADD URI** and paste:
+     ```
+     http://localhost:4567/oauth2callback
+     ```
+     *(Note: This is the local callback handler spawned automatically by the CLI).*
+   - Click **Create** to generate your **Client ID** and **Client Secret**.
+4. **Complete CLI Flow**:
+   - Enter your Client ID and Client Secret in the CLI prompts.
+   - The CLI will output a URL and attempt to open your browser to complete the OAuth consent flow.
+   - Login with your registered test Google account.
+   - If a screen says *"Google hasn't verified this app"*, click **Advanced** followed by **Go to <App Name> (unsafe)** to proceed.
+   - Upon completion, the page will confirm authorization and the CLI will write the OAuth tokens directly to your `.env` file.
+
+#### Option B: Google Cloud Service Account (Key JSON)
+Ideal for production backends, cron jobs, or serverless deployments where manual browser logins aren't appropriate:
+1. **Download Service Account Key**:
+   - Go to the [Google Cloud Service Accounts Console](https://console.cloud.google.com/iam-admin/serviceaccounts).
+   - Click on your Service Account (or click **Create Service Account** at the top to create one first).
+   - Navigate to the **Keys** tab.
+   - Click **Add Key** > **Create new key**.
+   - Select **JSON** as the format and click **Create** to download the credentials JSON key file. Place it inside your project folder (e.g. as `credentials.json`).
+2. **Configure a Shared Folder on Google Drive**:
+   - Open your personal Google Drive and create a new folder (e.g., `drivespread-database`).
+   - Right-click the folder, click **Share**, and share the folder with the Service Account email (e.g. `your-sa-name@your-project-id.iam.gserviceaccount.com`) as **Editor** (with write/edit permissions).
+   - Copy the **Folder ID** from your browser's address bar (it is the long string of alphanumeric characters at the end of the folder's URL: `https://drive.google.com/drive/folders/YOUR_FOLDER_ID`).
+   - > [!IMPORTANT]
+   - > **Quota Workaround**: Google Cloud Service Accounts have a default **0-byte storage quota** on Google Drive. Sharing a folder owned by your personal account allows the Service Account to write files inside it using your personal storage quota.
+3. **Complete CLI Flow**:
+   - Run `npx drivespread init` in your terminal and select **`2) Google Cloud Service Account`**.
+   - Input the path to the downloaded credentials JSON file (e.g., `./credentials.json`).
+   - Paste the copied **Folder ID** when prompted.
+   - The CLI will automatically parse the key, format the values, and write them directly into your `.env` file.
 
 ### Generated Environment Variables
-Whichever option you choose, the CLI will write the appropriate set of variables directly to your `.env` file:
+
+The CLI will append the configurations directly to your `.env` file depending on the method chosen:
+
+**For Personal Google Account (OAuth2):**
+```env
+DRIVESPREAD_DB="your-db-name"
+DRIVESPREAD_FOLDER_ID="your-folder-id"
+GOOGLE_CLIENT_ID="your-oauth-client-id"
+GOOGLE_CLIENT_SECRET="your-oauth-client-secret"
+GOOGLE_REFRESH_TOKEN="your-oauth-refresh-token"
+```
 
 **For Service Account:**
 ```env
 DRIVESPREAD_DB="your-db-name"
+DRIVESPREAD_FOLDER_ID="your-folder-id"
 GOOGLE_TYPE="service_account"
 GOOGLE_PROJECT_ID="your-project-id"
 GOOGLE_PRIVATE_KEY_ID="your-private-key-id"
@@ -183,26 +204,6 @@ GOOGLE_AUTH_PROVIDER_X509_CERT_URL="https://www.googleapis.com/oauth2/v1/certs"
 GOOGLE_CLIENT_X509_CERT_URL="your-cert-url"
 GOOGLE_UNIVERSE_DOMAIN="googleapis.com"
 ```
-
-**For Personal Google Account (OAuth2):**
-```env
-DRIVESPREAD_DB="your-db-name"
-GOOGLE_CLIENT_ID="your-oauth-client-id"
-GOOGLE_CLIENT_SECRET="your-oauth-client-secret"
-GOOGLE_REFRESH_TOKEN="your-oauth-refresh-token"
-```
-
-### Step 4: Share a Folder from your Personal Google Drive (Highly Recommended)
-By default, the Service Account will create and own its own root folders and spreadsheets on its isolated Drive space. Because a Service Account does not have a web interface to empty its Trash, deleted files can accumulate and exceed its 15 GB quota over time.
-
-To avoid quota limitations and easily manage your database files in the Google Drive Web UI:
-1. Open your main personal/work Google Drive in the web browser.
-2. Create a new folder (e.g., named `drivespread_my-app-prod`).
-3. Right-click the folder, choose **Share**, paste your Service Account's email address (`client_email`, e.g., `your-service-account-email@your-project.iam.gserviceaccount.com`), assign it the **Editor** role, and click **Share**.
-4. Copy the **Folder ID** from your browser address bar (it is the long string of alphanumeric characters at the end of the URL, e.g., `https://drive.google.com/drive/folders/YOUR_FOLDER_ID`).
-5. When running `npx drivespread init`, paste this Folder ID into the optional prompt. This will save it as `DRIVESPREAD_FOLDER_ID="YOUR_FOLDER_ID"` in your `.env` file.
-
-Now, DriveSpread will automatically initialize the database inside this shared folder. You can open, view, or manage all the database sheets, indexes, and logs directly in your browser. Any files you delete or purge from the Trash in your main Google Drive will automatically reclaim storage quota space.
 
 ---
 
@@ -477,23 +478,130 @@ GET    /health              - Server status check
 GET    /api/_meta           - Admin database metadata (requires x-admin-secret header)
 ```
 
-### WebSocket Client Subscription
+
+## Frontend & Client SDK (`DriveSpreadClient`)
+
+DriveSpread ships with a lightweight, browser-compatible Client SDK that abstracts communication with the REST and WebSocket backend.
+
+### 1. Installation & Import
+
+In client applications, you can import `DriveSpreadClient` directly:
 
 ```javascript
 import { DriveSpreadClient } from 'drivespread/client';
+```
 
-const client = new DriveSpreadClient('ws://localhost:3000', { token: 'JWT_TOKEN' });
+If serving directly from an Express server (like the provided example), the client file can be served as an ES Module:
 
-// Receive event pushes on collection actions
-client.subscribe('users', { role: 'user' }, (event) => {
-  console.log(event.type); // 'insert' | 'update' | 'delete'
-  console.log(event.row);  // Full record payload
+```javascript
+import { DriveSpreadClient } from '/client.js';
+```
+
+### 2. Initialization
+
+Instantiate the client with your backend URL. If authentication is enabled, provide a JWT token:
+
+```javascript
+const client = new DriveSpreadClient('ws://localhost:3000', {
+  token: 'YOUR_JWT_TOKEN' // Optional: if db.serve() configured auth
 });
+```
+
+*Note: The client automatically converts the `ws://` or `wss://` protocol prefix to `http://` or `https://` respectively when performing HTTP CRUD calls.*
+
+### 3. CRUD Data Operations (REST APIs)
+
+All operations are asynchronous and return promises:
+
+#### Fetch Documents (`find`)
+Retrieve documents matching a query filter. Supports Mongo-like operator queries:
+```javascript
+// Fetch all active todos
+const activeTodos = await client.find('todos', { completed: false });
+
+// Query with comparison operators
+const premiumProducts = await client.find('products', {
+  price: { $gte: 1500 }
+});
+```
+
+#### Fetch Document by ID (`findById`)
+```javascript
+const todo = await client.findById('todos', 'uuid-1234');
+```
+
+#### Insert Document (`insert`)
+```javascript
+const newTodo = await client.insert('todos', {
+  title: 'Learn DriveSpread SDK',
+  completed: false
+});
+```
+
+#### Update Document by ID (`updateById`)
+```javascript
+const updatedTodo = await client.updateById('todos', 'uuid-1234', {
+  completed: true
+});
+```
+
+#### Delete Document by ID (`deleteById`)
+```javascript
+await client.deleteById('todos', 'uuid-1234');
+```
+
+### 4. Real-time Event Subscription (WebSockets)
+
+Subscribe to collection-level change events. The socket connection is persistent and auto-reconnects every 3 seconds if disconnected:
+
+```javascript
+// Subscribe to any changes in the 'todos' collection
+client.subscribe('todos', {}, (event) => {
+  const { type, row } = event; // type is 'insert' | 'update' | 'delete'
+  console.log(`Action: ${type}`, row);
+});
+
+// Unsubscribe when done
+client.unsubscribe('todos');
+```
+
+### 5. Connection & Request Hooks
+
+DriveSpreadClient exposes callback hooks that you can bind to for handling loading indicators, offline detection, and errors:
+
+#### Request Loading Hook (`onLoadingChange`)
+Executes whenever an HTTP request begins or completes, passing `isLoading` (boolean). This tracks concurrent inflight requests and is perfect for managing production-ready loaders and progress bars.
+```javascript
+client.onLoadingChange = (isLoading) => {
+  if (isLoading) {
+    showSpinner();
+  } else {
+    hideSpinner();
+  }
+};
+```
+
+#### WebSocket Lifecycle Hooks
+Callbacks to monitor socket connections, useful for driving status badges or user notifications:
+```javascript
+// Connection established / restored
+client.onOpen = () => {
+  updateStatusBadge('Synced', 'green');
+};
+
+// Connection lost (auto-reconnect will fire in 3 seconds)
+client.onClose = () => {
+  updateStatusBadge('Offline - Reconnecting...', 'red');
+};
+
+// Connection error
+client.onError = (err) => {
+  console.error('Socket error:', err);
+};
 ```
 
 ---
 
-## Serverless Framework Adapters
 
 Run DriveSpread endpoints inside serverless runtimes.
 
@@ -564,7 +672,7 @@ npm run test
    Duration  1.77s
 ```
 
-All 18 integration tests pass. Type checking under strict configuration compiles with zero warnings or errors.
+All 18 integration tests pass.
 
 ---
 

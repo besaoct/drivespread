@@ -86,15 +86,14 @@ export class GoogleDriveService {
         privateKey = privateKey.slice(1, -1);
       }
 
-      this.authClient = new google.auth.JWT(
-        credsObj.client_email,
-        undefined,
-        privateKey,
-        [
+      this.authClient = new google.auth.JWT({
+        email: credsObj.client_email,
+        key: privateKey,
+        scopes: [
           'https://www.googleapis.com/auth/spreadsheets',
           'https://www.googleapis.com/auth/drive',
-        ]
-      );
+        ],
+      });
     }
 
     this.drive = google.drive({ version: 'v3', auth: this.authClient });

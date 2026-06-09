@@ -3,6 +3,7 @@ import { SchemaValidator } from './schema.js';
 import { QueryEngine } from './query.js';
 import { RelationManager } from './relations.js';
 import {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- used in QueryChain
   SchemaDefinition,
   CollectionOptions,
   RowData,
@@ -243,7 +244,7 @@ export class Collection {
     const nextRowNumber = allValues.length + 1;
 
     const range = `Sheet1!A${nextRowNumber}`;
-    await this.db.writeQueue.enqueueUpdate(activeShardId, range, [rowValues]);
+    this.db.writeQueue.enqueueUpdate(activeShardId, range, [rowValues]).catch(e => console.error('Background write failed:', e));
 
     // 7. Increment row count in metadata
     let meta = this.db.getMetadata();
@@ -408,7 +409,7 @@ export class Collection {
 
       // Write back to sheets range
       const range = `Sheet1!A${location.row}:ZZ${location.row}`;
-      await this.db.writeQueue.enqueueUpdate(location.shardId, range, [rowValues]);
+      this.db.writeQueue.enqueueUpdate(location.shardId, range, [rowValues]).catch(e => console.error('Background write failed:', e));
 
       // Update indexes
       await this.db.indexManager.updateIndexes(
@@ -473,7 +474,7 @@ export class Collection {
     const headers = ['_id', '_version', '_createdAt', '_updatedAt', ...Object.keys(this.schema)];
     const emptyRow = headers.map(() => '');
     const range = `Sheet1!A${location.row}:ZZ${location.row}`;
-    await this.db.writeQueue.enqueueUpdate(location.shardId, range, [emptyRow]);
+    this.db.writeQueue.enqueueUpdate(location.shardId, range, [emptyRow]).catch(e => console.error('Background write failed:', e));
 
     // 4. Update metadata
     let meta = this.db.getMetadata();
@@ -512,6 +513,7 @@ export class QueryChain implements PromiseLike<RowData[]> {
   private sortSpec?: Record<string, 'asc' | 'desc'>;
   private limitCount?: number;
   private offsetCount?: number;
+  private selectFields?: string[];
 
   constructor(collection: Collection, filterQuery: QueryFilter, options: FindOptions) {
     this.collection = collection;
@@ -541,6 +543,11 @@ export class QueryChain implements PromiseLike<RowData[]> {
     return this;
   }
 
+  select(fields: string[]): this {
+    this.selectFields = fields;
+    return this;
+  }
+
   async get(): Promise<RowData[]> {
     let rows = await this.collection.executeFind(this.filterQuery, this.options);
 
@@ -554,6 +561,10 @@ export class QueryChain implements PromiseLike<RowData[]> {
 
     if (this.limitCount !== undefined) {
       rows = rows.slice(0, this.limitCount);
+    }
+
+    if (this.selectFields && this.selectFields.length > 0) {
+      rows = QueryEngine.project(rows, this.selectFields);
     }
 
     return rows;

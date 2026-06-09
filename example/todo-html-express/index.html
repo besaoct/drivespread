@@ -226,6 +226,11 @@
       transform: translateX(4px);
     }
 
+    .todo-item.optimistic {
+      opacity: 0.6;
+      pointer-events: none;
+    }
+
     .todo-left {
       display: flex;
       align-items: center;
@@ -350,6 +355,20 @@
       border: 1px dashed var(--card-border);
       border-radius: 10px;
     }
+
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+    .loader {
+      display: none;
+      width: 14px;
+      height: 14px;
+      border: 2px solid var(--accent-glow);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    .loader.active {
+      display: block;
+    }
   </style>
 </head>
 <body>
@@ -363,6 +382,7 @@
       <div class="status-badge">
         <div class="status-dot" id="status-dot"></div>
         <span id="status-text">Connecting...</span>
+        <div class="loader" id="status-loader"></div>
       </div>
     </header>
 
@@ -403,28 +423,18 @@
     let wsClient = null;
 
     window.onload = async () => {
-      await fetchTodos();
       setupWebSocket();
+      await fetchTodos();
     };
 
-    // Fetch Initial Data
-    async function fetchTodos() {
-      try {
-        const res = await fetch('/api/todos');
-        todos = await res.json();
-        renderLists();
-      } catch (err) {
-        console.error('Error fetching todos:', err);
-      }
-    }
-
-    // Set up WebSocket realtime subscriptions
+    // Set up WebSocket realtime subscriptions and client
     function setupWebSocket() {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}`;
       
       const dot = document.getElementById('status-dot');
       const text = document.getElementById('status-text');
+      const loader = document.getElementById('status-loader');
 
       dot.className = 'status-dot connecting';
       text.innerText = 'Connecting...';
@@ -452,20 +462,45 @@
         renderLists();
       });
 
-      // Update connection status indicators
-      wsClient.ws.onopen = () => {
+      // Update connection status indicators using persistent callbacks
+      wsClient.onOpen = () => {
         dot.className = 'status-dot connected';
         text.innerText = 'Synced';
       };
 
-      wsClient.ws.onclose = () => {
+      wsClient.onClose = () => {
         dot.className = 'status-dot';
         text.innerText = 'Offline';
       };
+
+      // Loading state hook
+      wsClient.onLoadingChange = (isLoading) => {
+        if (isLoading) {
+          loader.classList.add('active');
+        } else {
+          loader.classList.remove('active');
+        }
+      };
+    }
+
+    // Fetch Initial Data
+    async function fetchTodos() {
+      try {
+        todos = await wsClient.find('todos');
+        renderLists();
+      } catch (err) {
+        console.error('Error fetching todos:', err);
+      }
     }
 
     // Render Lists to DOM
+    let renderTimeout = null;
     function renderLists() {
+      if (renderTimeout) clearTimeout(renderTimeout);
+      renderTimeout = setTimeout(() => actualRenderLists(), 20);
+    }
+
+    function actualRenderLists() {
       const activeList = document.getElementById('active-list');
       const completedList = document.getElementById('completed-list');
 
@@ -496,7 +531,7 @@
     // Create Todo Item Element
     function createTodoItemEl(todo) {
       const el = document.createElement('div');
-      el.className = `todo-item ${todo.completed ? 'completed' : ''}`;
+      el.className = `todo-item ${todo.completed ? 'completed' : ''} ${todo._isOptimistic ? 'optimistic' : ''}`;
       el.id = `todo-${todo._id}`;
 
       el.innerHTML = `
@@ -518,24 +553,46 @@
 
     // Helper functions exposed globally for onclick handlers
     window.toggleCompleted = async (id, checked) => {
+      // Optimistic Update
+      const todoIdx = todos.findIndex(t => t._id === id);
+      if (todoIdx === -1) return;
+      
+      const previousState = todos[todoIdx].completed;
+      todos[todoIdx].completed = checked;
+      todos[todoIdx]._isOptimistic = true;
+      renderLists();
+
       try {
-        await fetch(`/api/todos/${id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ completed: checked })
-        });
+        const realTodo = await wsClient.updateById('todos', id, { completed: checked });
+        todos[todoIdx] = realTodo;
+        renderLists();
       } catch (err) {
         console.error('Error updating todo status:', err);
+        // Rollback
+        todos[todoIdx].completed = previousState;
+        delete todos[todoIdx]._isOptimistic;
+        renderLists();
+        alert('Failed to update todo');
       }
     };
 
     window.deleteTodo = async (id) => {
+      // Optimistic Delete
+      const todoIdx = todos.findIndex(t => t._id === id);
+      if (todoIdx === -1) return;
+      
+      const todoToRestore = todos[todoIdx];
+      todos.splice(todoIdx, 1);
+      renderLists();
+
       try {
-        await fetch(`/api/todos/${id}`, {
-          method: 'DELETE'
-        });
+        await wsClient.deleteById('todos', id);
       } catch (err) {
         console.error('Error deleting todo:', err);
+        // Rollback
+        todos.push(todoToRestore);
+        renderLists();
+        alert('Failed to delete todo');
       }
     };
 
@@ -550,14 +607,41 @@
 
       input.value = '';
       
+      // Optimistic Insert
+      const tempId = 'temp-' + Date.now();
+      const tempTodo = {
+        _id: tempId,
+        title,
+        priority,
+        completed: false,
+        _createdAt: new Date().toISOString(),
+        _updatedAt: new Date().toISOString(),
+        _isOptimistic: true
+      };
+      todos.push(tempTodo);
+      renderLists();
+      
       try {
-        await fetch('/api/todos', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ title, priority })
-        });
+        const realTodo = await wsClient.insert('todos', { title, priority });
+        // Handle WebSocket concurrency
+        const existsIdx = todos.findIndex(t => t._id === realTodo._id);
+        if (existsIdx !== -1) {
+          // Already added by WebSocket! Just remove the temp one.
+          todos = todos.filter(t => t._id !== tempId);
+        } else {
+          // Replace temp todo with real one
+          const tempIdx = todos.findIndex(t => t._id === tempId);
+          if (tempIdx !== -1) {
+            todos[tempIdx] = realTodo;
+          }
+        }
+        renderLists();
       } catch (err) {
         console.error('Error adding todo:', err);
+        // Rollback
+        todos = todos.filter(t => t._id !== tempId);
+        renderLists();
+        alert('Failed to add todo');
       }
     };
 
