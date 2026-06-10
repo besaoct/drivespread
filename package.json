@@ -1,6 +1,6 @@
 {
   "name": "drivespread",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Zero-infrastructure database using Google Sheets and Google Drive as a backend",
   "engines": {
     "node": ">=24.0.0"
