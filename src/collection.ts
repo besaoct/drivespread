@@ -244,7 +244,7 @@ export class Collection {
     const nextRowNumber = allValues.length + 1;
 
     const range = `Sheet1!A${nextRowNumber}`;
-    this.db.writeQueue.enqueueUpdate(activeShardId, range, [rowValues]).catch(e => console.error('Background write failed:', e));
+    await this.db.writeQueue.enqueueUpdate(activeShardId, range, [rowValues]);
 
     // 7. Increment row count in metadata
     let meta = this.db.getMetadata();
@@ -409,7 +409,7 @@ export class Collection {
 
       // Write back to sheets range
       const range = `Sheet1!A${location.row}:ZZ${location.row}`;
-      this.db.writeQueue.enqueueUpdate(location.shardId, range, [rowValues]).catch(e => console.error('Background write failed:', e));
+      await this.db.writeQueue.enqueueUpdate(location.shardId, range, [rowValues]);
 
       // Update indexes
       await this.db.indexManager.updateIndexes(
@@ -474,7 +474,7 @@ export class Collection {
     const headers = ['_id', '_version', '_createdAt', '_updatedAt', ...Object.keys(this.schema)];
     const emptyRow = headers.map(() => '');
     const range = `Sheet1!A${location.row}:ZZ${location.row}`;
-    this.db.writeQueue.enqueueUpdate(location.shardId, range, [emptyRow]).catch(e => console.error('Background write failed:', e));
+    await this.db.writeQueue.enqueueUpdate(location.shardId, range, [emptyRow]);
 
     // 4. Update metadata
     let meta = this.db.getMetadata();
