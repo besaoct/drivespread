@@ -27,7 +27,7 @@ DriveSpread transforms Google Sheets from a static grid into a scalable, safe, a
         │                 Core DB Engine                    │
         │ ┌──────────────────────┐ ┌──────────────────────┐ │
         │ │     ShardManager     │ │     LockManager      │ │
-        │ │ (Cell count monitoring│ │ (Optimistic version  │ │
+        │ │(Cell count monitoring│ │ (Optimistic version  │ │
         │ │  & auto-splitting)   │ │  & pessimistic lock) │ │
         │ └──────────────────────┘ └──────────────────────┘ │
         │ ┌──────────────────────┐ ┌──────────────────────┐ │
