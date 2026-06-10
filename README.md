@@ -681,6 +681,7 @@ All 18 integration tests pass.
 - **Runtime**: Node.js >= 24.0.0
 - **TypeScript**: Strict-mode ready
 - **License**: MIT
+- **Code of Conduct**: [Contributor Covenant](CODE_OF_CONDUCT.md)
 - **Bundle size**: 
   - **Client SDK (`client.mjs`)**: ~2.2 KB (fully tree-shakeable)
   - **Core Database Engine (`index.mjs` + chunks)**: ~73 KB
