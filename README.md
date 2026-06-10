@@ -37,12 +37,12 @@ DriveSpread transforms Google Sheets from a static grid into a scalable, safe, a
         │ └──────────────────────┘ └──────────────────────┘ │
         │ ┌──────────────────────┐ ┌──────────────────────┐ │
         │ │     BlobManager      │ │      WriteQueue      │ │
-        │ │ (Drive media files)  │ │ (Aggregated batching │ │
+        │ │ (Drive media files)  │ │ (Awaited batch commit│ │
         │ │                      │ │  & throttling)       │ │
         │ └──────────────────────┘ └──────────────────────┘ │
         └───────────────────────────────────────────────────┘
                                  ↓
-                 Google Service Account (OAuth 2.0)
+                 Google Account (OAuth 2.0 / Service Account)
                                  ↓
         ┌───────────────────────────────────────────────────┐
         │             Google Drive Namespace                │
@@ -56,7 +56,7 @@ DriveSpread transforms Google Sheets from a static grid into a scalable, safe, a
 
 1. **Auto-Sharding**: Monitors cell capacities (rows × columns) per spreadsheet. Once a sheet approaches the Google Sheets hard limit of 10 million cells (we trigger at a safe threshold of 9.5M cells), a new shard spreadsheet is automatically provisioned. Reads fan out concurrently across all shards while writes route to the active shard.
 2. **Optimistic & Pessimistic Concurrency**: Every database row tracks an internal version column (`_version`). Updates perform optimistic concurrency checks, raising conflict errors and retrying automatically with exponential backoff on collisions. Critical operations use a Google Sheet-backed `_locks` distributed mutex.
-3. **Async Write Queue & Background Sync**: Write operations (`insert`, `update`, `delete`) are enqueued into an in-memory queue and processed asynchronously in the background. This decouples the server's API/WebSocket responses from Google Sheets API latency. Instead of blocking requests for 6-8 seconds for Google network roundtrips, requests resolve in <20ms. The queue aggregates, batches (using Sheets `batchUpdate` and `batchClear`), and throttles operations to strictly respect Google's 300 requests/minute rate limit.
+3. **Write Queue & Batching**: Write operations (`insert`, `update`, `delete`) are enqueued into an in-memory queue. The queue aggregates, batches (using Sheets `batchUpdate` and `batchClear`), and throttles operations to strictly respect Google's 300 requests/minute rate limit. To guarantee strong write-after-read consistency and transactional safety, operations now wait for the queue to successfully commit the batch to Google Sheets before resolving.
 4. **Write-Through Caching**: Implements a configurable TTL read cache. Inserts and updates propagate immediately to the local cache, guaranteeing sub-millisecond sequential reads.
 5. **O(1) JSON Indexes**: Automatically creates and maintains index mapping files on Google Drive (`_index_{collection}_{field}.json`) for primary key lookup optimization.
 6. **Relational Constraints**: Supports `belongsTo`, `hasOne`, and `hasMany` relationships, enforcing in-memory join population and delete cascade actions (`cascade`, `restrict`, `setNull`).
@@ -94,7 +94,7 @@ npm install drivespread
 ### Hard Limitations to Always Keep in Mind
 * **Write latency** is 100–500ms on every operation because everything goes through Google's API over the network. You cannot make this faster.
 * **The 300 Sheets API requests per minute limit** is a hard ceiling set by Google. The write queue handles bursts, but sustained high-write apps will always run into this wall.
-* **There are no true transactions**. Optimistic locking handles concurrent writes to the same row, but cross-collection atomic operations simply aren't possible.
+* **There are no true ACID transactions**. While DriveSpread provides a best-effort transaction block with automatic rollbacks, cross-collection operations are simulated sequentially. If the Node.js process crashes mid-rollback, you could end up with partial writes.
 * **There is no offline support**. Every read and write requires a live connection to Google. No local-first model exists here.
 * **Realtime is simulated** via server-side polling. The minimum update latency is roughly 1–5 seconds depending on your poll interval config. It is not true push.
 * **Multi-collection joins** happen entirely in memory. Fine for small datasets, but it breaks down past tens of thousands of rows across joined collections.
