@@ -1,4 +1,4 @@
-# DriveSpread
+# drivespread
 
 [![npm version](https://img.shields.io/npm/v/drivespread.svg?style=flat-flat)](https://www.npmjs.com/package/drivespread)
 [![CI/CD Status](https://github.com/besaoct/drivespread/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/besaoct/drivespread/actions)
@@ -8,20 +8,20 @@
 > [!IMPORTANT]
 > **Beta & Active Development Status**: This project is currently in **Beta** and under active continuous development. Issues, feature requests, and community contributions are highly welcomed! Please feel free to open a GitHub issue or submit a pull request.
 
-**DriveSpread** is a zero-infrastructure, production-ready, open-source database library that emulates a fully functional database using **Google Drive** and **Google Sheets** as a private, secure, and free backend.
+**drivespread** is a zero-infrastructure, production-ready, open-source database library that emulates a fully functional database using **Google Drive** and **Google Sheets** as a private, secure, and free backend.
 
-With DriveSpread, you can build a complete backend database, REST API, and realtime WebSocket event server in **less than 10 lines of code** with zero server costs and zero DevOps setup.
+With drivespread, you can build a complete backend database, REST API, and realtime WebSocket event server in **less than 10 lines of code** with zero server costs and zero DevOps setup.
 
 ---
 
 ## Key Capabilities & Architecture
 
-DriveSpread transforms Google Sheets from a static grid into a scalable, safe, and relational database engine.
+drivespread transforms Google Sheets from a static grid into a scalable, safe, and relational database engine.
 
 ```
                   Your Node.js Application / Server
                                  ↓
-                     DriveSpread Client SDK
+                     drivespread Client SDK
                                  ↓
         ┌───────────────────────────────────────────────────┐
         │                 Core DB Engine                    │
@@ -74,8 +74,8 @@ npm install drivespread
 
 ## Use Cases, Limitations & Fit Guide
 
-### Where DriveSpread is a Perfect Fit
-* **Side projects and indie apps** are the ideal home for DriveSpread. You ship in hours, pay nothing, and never think about servers. Most side projects never grow beyond what DriveSpread handles comfortably.
+### Where drivespread is a Perfect Fit
+* **Side projects and indie apps** are the ideal home for drivespread. You ship in hours, pay nothing, and never think about servers. Most side projects never grow beyond what drivespread handles comfortably.
 * **Hackathons** are almost tailor-made for it. Five minutes to set up a service account, another twenty to have a working REST API with auth. The rest of your time goes toward building the actual product.
 * **Internal admin panels and ops tools** work great because write traffic is low, teams are small, and nobody cares about 200ms write latency. Row-level permissions handle access control cleanly.
 * **Non-technical founder MVPs** are a strong use case. The founder can open the underlying Sheet (via an explicit share), see real user data, and manually fix things if needed — no engineer required for database ops. Perfect for pre-PMF validation at zero cost.
@@ -86,27 +86,27 @@ npm install drivespread
 * **Newsletter and waitlist tools** are a natural fit — write-once, read-rarely, and the Sheet doubles as a natural export to Mailchimp or similar.
 * **Simple CMS backends** work if content is updated infrequently. Use Drive blobs for images. Not ideal if editors need real-time collaboration or version history.
 
-### Where You Should Not Use DriveSpread
-* **E-commerce at any real scale** is a hard no. Checkout flows need sub-10ms write latency and true transactions. DriveSpread's write queue adds 100–500ms and has no ACID guarantees across collections. Concurrent order updates are a real data loss risk.
-* **Real-time collaborative apps** like anything Figma-like need WebSocket infrastructure and CRDTs. DriveSpread's realtime is polling-based with 1–5 second update latency minimum. Concurrent edits to the same document will cause version conflicts and retries.
+### Where You Should Not Use drivespread
+* **E-commerce at any real scale** is a hard no. Checkout flows need sub-10ms write latency and true transactions. drivespread's write queue adds 100–500ms and has no ACID guarantees across collections. Concurrent order updates are a real data loss risk.
+* **Real-time collaborative apps** like anything Figma-like need WebSocket infrastructure and CRDTs. drivespread's realtime is polling-based with 1–5 second update latency minimum. Concurrent edits to the same document will cause version conflicts and retries.
 * **Analytics pipelines and event ingestion** are a mismatch. Millions of events per day means millions of API calls — you'll hit the 300 req/min ceiling almost immediately. Time-series aggregations run in memory and fall apart past a few thousand rows.
 
 ### Hard Limitations to Always Keep in Mind
 * **Write latency** is 100–500ms on every operation because everything goes through Google's API over the network. You cannot make this faster.
 * **The 300 Sheets API requests per minute limit** is a hard ceiling set by Google. The write queue handles bursts, but sustained high-write apps will always run into this wall.
-* **There are no true ACID transactions**. While DriveSpread provides a best-effort transaction block with automatic rollbacks, cross-collection operations are simulated sequentially. If the Node.js process crashes mid-rollback, you could end up with partial writes.
+* **There are no true ACID transactions**. While drivespread provides a best-effort transaction block with automatic rollbacks, cross-collection operations are simulated sequentially. If the Node.js process crashes mid-rollback, you could end up with partial writes.
 * **There is no offline support**. Every read and write requires a live connection to Google. No local-first model exists here.
 * **Realtime is simulated** via server-side polling. The minimum update latency is roughly 1–5 seconds depending on your poll interval config. It is not true push.
 * **Multi-collection joins** happen entirely in memory. Fine for small datasets, but it breaks down past tens of thousands of rows across joined collections.
 
 ### When to Move On
-DriveSpread is built to be outgrown. Once you hit sustained 1k+ writes per minute, 500k+ rows with complex queries, multi-region teams, or compliance requirements like SOC 2 or HIPAA, migrate to Postgres or MongoDB. The `drivespread migrate` CLI command can handle that export for you.
+drivespread is built to be outgrown. Once you hit sustained 1k+ writes per minute, 500k+ rows with complex queries, multi-region teams, or compliance requirements like SOC 2 or HIPAA, migrate to Postgres or MongoDB. The `drivespread migrate` CLI command can handle that export for you.
 
 ---
 
 ## Google Cloud Credentials Setup
 
-DriveSpread runs securely using individual environment variables derived from a Google Cloud Service Account.
+drivespread runs securely using individual environment variables derived from a Google Cloud Service Account.
 
 ### Step 1: Enable Required APIs
 You must enable the Google Drive and Google Sheets APIs in your Google Cloud Project (select an existing project or create a new one using the project dropdown selector in the top navbar):
@@ -141,7 +141,7 @@ This is the easiest path for personal, testing, or development projects. It uses
    - Go to the [Google Cloud Console Credentials Page](https://console.cloud.google.com/apis/credentials).
    - Click **+ CREATE CREDENTIALS** at the top and select **OAuth client ID**.
    - Set the **Application type** to **Web application**.
-   - Add a name (e.g., `DriveSpread Local Development`).
+   - Add a name (e.g., `drivespread Local Development`).
    - Under **Authorized redirect URIs**, click **+ ADD URI** and paste:
      ```
      http://localhost:4567/oauth2callback
@@ -209,14 +209,14 @@ GOOGLE_UNIVERSE_DOMAIN="googleapis.com"
 
 ## Getting Started
 
-### 1. Initialize DriveSpread
+### 1. Initialize drivespread
 
 With individual environment variables populated, you can initialize the database client cleanly. If you configured `DRIVESPREAD_FOLDER_ID` in your environment, the library will automatically pick it up and use it:
 
 ```typescript
-import DriveSpread from 'drivespread';
+import drivespread from 'drivespread';
 
-const db = new DriveSpread({
+const db = new drivespread({
   db: 'my-app-database', // Folder name in Google Drive
   // folderId: process.env.DRIVESPREAD_FOLDER_ID, // (Optional) Explicitly overrides the environment variable
 });
@@ -246,7 +246,7 @@ const products = db.collection('products', {
 
 ## CRUD Operations & Querying
 
-DriveSpread supports MongoDB-like query operations, projections, pagination, and sorting.
+drivespread supports MongoDB-like query operations, projections, pagination, and sorting.
 
 ### Inserts
 
@@ -318,7 +318,7 @@ await products.deleteById('uuid-1234-5678');
 
 ## Transactions (Best-Effort Rollback)
 
-Since Google Sheets lacks native ACID transactions, DriveSpread provides a best-effort transaction block. An operations journal is recorded sequentially. If any step fails, the journal executes backwards to undo (delete or restore) previous modifications.
+Since Google Sheets lacks native ACID transactions, drivespread provides a best-effort transaction block. An operations journal is recorded sequentially. If any step fails, the journal executes backwards to undo (delete or restore) previous modifications.
 
 ```typescript
 await db.transaction(async (tx) => {
@@ -338,7 +338,7 @@ await db.transaction(async (tx) => {
 
 ## Relationship Modeling
 
-DriveSpread resolves joins in-memory and enforces referential integrity on deletions.
+drivespread resolves joins in-memory and enforces referential integrity on deletions.
 
 ```typescript
 const clients = db.collection('clients', {
@@ -481,7 +481,7 @@ GET    /api/_meta           - Admin database metadata (requires x-admin-secret h
 
 ## Frontend & Client SDK (`DriveSpreadClient`)
 
-DriveSpread ships with a lightweight, browser-compatible Client SDK that abstracts communication with the REST and WebSocket backend.
+drivespread ships with a lightweight, browser-compatible Client SDK that abstracts communication with the REST and WebSocket backend.
 
 ### 1. Installation & Import
 
@@ -533,7 +533,7 @@ const todo = await client.findById('todos', 'uuid-1234');
 #### Insert Document (`insert`)
 ```javascript
 const newTodo = await client.insert('todos', {
-  title: 'Learn DriveSpread SDK',
+  title: 'Learn drivespread SDK',
   completed: false
 });
 ```
@@ -603,7 +603,7 @@ client.onError = (err) => {
 ---
 
 
-Run DriveSpread endpoints inside serverless runtimes.
+Run drivespread endpoints inside serverless runtimes.
 
 ### Express Middleware
 ```javascript
@@ -655,7 +655,7 @@ npx drivespread share [email]
 
 ## Verification & Test Status
 
-DriveSpread is thoroughly tested against schema validations, concurrency limits, locking behaviors, and relation cascades.
+drivespread is thoroughly tested against schema validations, concurrency limits, locking behaviors, and relation cascades.
 
 ```bash
 npm run test
